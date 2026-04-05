@@ -1,0 +1,44 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-go-app
+  labels:
+    app: secure-go-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secure-go-app
+  template:
+    metadata:
+      labels:
+        app: secure-go-app
+    spec:
+      containers:
+      - name: go-app
+        image: go-app-chainguard:v1
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: secure-go-app-service
+spec:
+  selector:
+    app: secure-go-app
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
