@@ -34,7 +34,13 @@ We used three distinct containerization strategies to highlight the progression 
 ### Security Findings and Remediation Approach
 - **Initial Scan (Single-Stage)**: 756 known vulnerabilities. These largely originate from unused Debian OS packages (like `libpython`, coreutils) inherently bundled into the standard `golang:1.25` developer image.
 - **Remediation**: 
-  - **App Level**: Attempted upgrading `go.mod` (The Go Gin bindings and dependencies were evaluated to be perfectly up-to-date against latest CVE charts).
+  - **App Level:** All Go dependencies were checked for vulnerabilities using [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck):
+
+    ```bash
+    govulncheck ./...
+    # Output: No vulnerabilities found.
+    ```
+    This provides direct proof that the application and its dependencies are free of known Go CVEs at build time.
   - **OS Level**: Scrapped the baseline image entirely. Changing the runtime base to a multi-stage Alpine build dropped vulnerabilities exponentially to **4 CVEs** (tracked largely via `zlib`). 
   - **Ultimate Patching**: Migrated the final operational runtime base entirely to `cgr.dev/chainguard/static:latest`. The final scan registered **0 Vulnerabilities**, eliminating the software's structural attack surface altogether.
 
@@ -58,6 +64,19 @@ We moved beyond "security by obscurity" to **Security by Transparency**:
 ### Kubernetes Security & Best Practices Implemented
 - **Least Privilege Execution:** The application was built executing under predefined restricted users (UID 65532). Standard distroless execution.
 - **Defense-in-Depth Manifest:** Pod configurations enforce `allowPrivilegeEscalation: false` and explicitly `drop: [ALL]` capabilities, dramatically reducing blast radii inside shared clusters.
+
+**Kubernetes securityContext Example:**
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+```
 
 ---
 
@@ -94,9 +113,22 @@ export COSIGN_PASSWORD="chainguard"
 cosign generate-key-pair
 
 # Sign all three images directly
+
 cosign sign --yes --key cosign.key localhost:5000/go-app-single:v1
 cosign sign --yes --key cosign.key localhost:5000/go-app-alpine:v1
 cosign sign --yes --key cosign.key localhost:5000/go-app-chainguard:v1
+
+# ---------- 4b. SBOM Attestation & Verification ----------
+# Attach SBOM to the Chainguard image as an attestation
+cosign attest --key cosign.key \
+  --type spdxjson \
+  --predicate sbom-chainguard.spdx.json \
+  localhost:5000/go-app-chainguard:v1
+
+# Verify the SBOM attestation
+cosign verify-attestation --key cosign.pub \
+  --type spdxjson \
+  localhost:5000/go-app-chainguard:v1
 
 # Verify the Chainguard image signature
 cosign verify --key cosign.pub localhost:5000/go-app-chainguard:v1
